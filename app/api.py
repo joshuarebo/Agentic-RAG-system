@@ -25,6 +25,7 @@ _vector_store = None
 _model_router = None
 _retriever = None
 _agent = None
+_query_count = 0
 
 
 def get_vector_store() -> VectorStore:
@@ -141,6 +142,7 @@ async def delete_document(doc_id: str):
 @router.post("/query", response_model=QueryResponse)
 async def query_agent(request: QueryRequest):
     """Submit a question for the AI Decision Agent."""
+    global _query_count
     if not request.question.strip():
         raise HTTPException(400, "Question cannot be empty")
 
@@ -151,6 +153,7 @@ async def query_agent(request: QueryRequest):
             question=request.question,
             model_preference=request.model_preference,
         )
+        _query_count += 1
         return response
     except Exception as e:
         raise HTTPException(500, f"Agent error: {str(e)}")
@@ -174,3 +177,42 @@ async def get_logs(limit: int = 50):
     """Get recent model usage logs."""
     mr = get_model_router()
     return mr.get_logs(limit=limit)
+
+
+@router.get("/dashboard/data")
+async def dashboard_data():
+    """Aggregated stats for the dashboard."""
+    vs = get_vector_store()
+    mr = get_model_router()
+
+    logs = mr.get_logs(limit=200)
+
+    total_in = sum(l.tokens_input for l in logs)
+    total_out = sum(l.tokens_output for l in logs)
+    avg_latency = (sum(l.latency_ms for l in logs) / len(logs)) if logs else 0
+
+    models_breakdown = {}
+    for l in logs:
+        entry = models_breakdown.setdefault(l.model, {"calls": 0, "tokens": 0})
+        entry["calls"] += 1
+        entry["tokens"] += l.tokens_input + l.tokens_output
+
+    return {
+        "documents": vs.get_document_count(),
+        "chunks": vs.get_total_chunks(),
+        "total_queries": _query_count,
+        "api_calls": len(logs),
+        "total_tokens": total_in + total_out,
+        "avg_latency_ms": round(avg_latency, 1),
+        "models": models_breakdown,
+        "recent_logs": [
+            {
+                "model": l.model,
+                "tokens_in": l.tokens_input,
+                "tokens_out": l.tokens_output,
+                "latency_ms": round(l.latency_ms, 1),
+                "timestamp": l.timestamp,
+            }
+            for l in list(reversed(logs))[:10]
+        ],
+    }

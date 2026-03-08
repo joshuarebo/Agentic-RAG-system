@@ -1,8 +1,9 @@
-import httpx
 import time
 import json
 from typing import List, Dict, Optional
 from cachetools import TTLCache
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from app.config import get_settings
 from app.models import ModelUsage
 
@@ -14,20 +15,20 @@ class ModelRouter:
     def __init__(self):
         self.settings = get_settings()
         self.logs: List[ModelUsage] = []
-        self._client: Optional[httpx.AsyncClient] = None
+        self._llms: dict = {}
 
-    @property
-    def client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+    def _get_llm(self, model: str, temperature: float, max_tokens: int) -> ChatOpenAI:
+        """Get or create a ChatOpenAI instance for the given configuration."""
+        key = (model, temperature, max_tokens)
+        if key not in self._llms:
+            self._llms[key] = ChatOpenAI(
+                model=model,
+                api_key=self.settings.openrouter_api_key,
                 base_url=self.settings.openrouter_base_url,
-                headers={
-                    "Authorization": f"Bearer {self.settings.openrouter_api_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=120.0,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
-        return self._client
+        return self._llms[key]
 
     def select_model(
         self, preference: Optional[str] = None, complexity: str = "normal"
@@ -56,6 +57,7 @@ class ModelRouter:
         max_tok = max_tokens or self.settings.max_tokens
 
         # Check response cache
+        cache_hash = None
         if use_cache:
             cache_key = json.dumps(
                 {"model": selected_model, "messages": messages, "temp": temp},
@@ -74,49 +76,60 @@ class ModelRouter:
                 )
                 return {"content": cached["content"], "model_usage": cached_usage}
 
-        # Apply Anthropic prompt caching for Claude models
-        formatted_messages = self._apply_prompt_caching(messages, selected_model)
+        # Convert dict messages to LangChain message objects
+        lc_messages = self._to_langchain_messages(messages)
 
-        payload = {
-            "model": selected_model,
-            "messages": formatted_messages,
-            "temperature": temp,
-            "max_tokens": max_tok,
-        }
+        llm = self._get_llm(selected_model, temp, max_tok)
 
         start_time = time.time()
-
-        response = await self.client.post("/chat/completions", json=payload)
-        response.raise_for_status()
-        data = response.json()
-
+        response = await llm.ainvoke(lc_messages)
         latency_ms = round((time.time() - start_time) * 1000, 2)
 
-        usage = data.get("usage", {})
-        tokens_in = usage.get("prompt_tokens", 0)
-        tokens_out = usage.get("completion_tokens", 0)
-        cached_tokens = (
-            usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
-        )
+        # Extract token usage from response metadata
+        usage_meta = getattr(response, "usage_metadata", None) or {}
+        tokens_in = usage_meta.get("input_tokens", 0)
+        tokens_out = usage_meta.get("output_tokens", 0)
+
+        # Fallback to response_metadata if usage_metadata is empty
+        if not tokens_in and not tokens_out:
+            resp_meta = getattr(response, "response_metadata", {})
+            token_usage = resp_meta.get("token_usage", {})
+            tokens_in = token_usage.get("prompt_tokens", 0)
+            tokens_out = token_usage.get("completion_tokens", 0)
 
         model_usage = ModelUsage(
             model=selected_model,
             tokens_input=tokens_in,
             tokens_output=tokens_out,
             latency_ms=latency_ms,
-            cached_tokens=cached_tokens,
+            cached_tokens=0,
         )
         self.logs.append(model_usage)
 
-        content = data["choices"][0]["message"]["content"]
+        content = response.content
 
         result = {"content": content, "model_usage": model_usage}
 
         # Cache the response
-        if use_cache:
+        if use_cache and cache_hash is not None:
             _response_cache[cache_hash] = result
 
         return result
+
+    @staticmethod
+    def _to_langchain_messages(messages: List[Dict]) -> list:
+        """Convert dict messages to LangChain message objects."""
+        lc_msgs = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                lc_msgs.append(SystemMessage(content=content))
+            elif role == "user":
+                lc_msgs.append(HumanMessage(content=content))
+            elif role == "assistant":
+                lc_msgs.append(AIMessage(content=content))
+        return lc_msgs
 
     def _apply_prompt_caching(
         self, messages: List[Dict], model: str
@@ -152,5 +165,5 @@ class ModelRouter:
         return [self.settings.primary_model, self.settings.secondary_model]
 
     async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        """Clean up resources."""
+        self._llms.clear()

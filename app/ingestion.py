@@ -1,7 +1,7 @@
-import re
 import io
 from typing import List
 from PyPDF2 import PdfReader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 def parse_pdf(file_bytes: bytes) -> str:
@@ -31,50 +31,16 @@ def parse_document(file_bytes: bytes, filename: str) -> str:
 def chunk_text(
     text: str, chunk_size: int = 500, chunk_overlap: int = 50
 ) -> List[str]:
-    """Split text into semantic chunks based on paragraphs and sentences."""
-    text = re.sub(r"\r\n", "\n", text)
+    """Split text into semantic chunks using LangChain's RecursiveCharacterTextSplitter."""
+    if not text or not text.strip():
+        return []
 
-    # Split by double newlines (paragraphs) or markdown headings
-    sections = re.split(r"\n\s*\n|\n(?=#)", text)
-
-    chunks = []
-    current_chunk = ""
-
-    for section in sections:
-        section = section.strip()
-        if not section:
-            continue
-
-        if len(current_chunk) + len(section) + 2 <= chunk_size:
-            current_chunk = (
-                f"{current_chunk}\n\n{section}" if current_chunk else section
-            )
-        else:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                overlap_text = (
-                    current_chunk[-chunk_overlap:]
-                    if len(current_chunk) > chunk_overlap
-                    else ""
-                )
-                current_chunk = (
-                    f"{overlap_text} {section}" if overlap_text else section
-                )
-            else:
-                # Section alone exceeds chunk_size — split by sentences
-                sentences = re.split(r"(?<=[.!?])\s+", section)
-                for sent in sentences:
-                    if len(current_chunk) + len(sent) + 1 <= chunk_size:
-                        current_chunk = (
-                            f"{current_chunk} {sent}" if current_chunk else sent
-                        )
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk.strip())
-                        current_chunk = sent
-
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    chunks = splitter.split_text(text)
 
     # Filter out very short chunks (less than 20 chars)
-    return [c for c in chunks if len(c) >= 20]
+    return [c for c in chunks if len(c.strip()) >= 20]

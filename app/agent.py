@@ -2,6 +2,7 @@ import json
 import re
 import time
 from typing import List, Optional
+from langchain_core.prompts import ChatPromptTemplate
 from app.models import (
     DecisionResult,
     DecisionEnum,
@@ -35,6 +36,14 @@ Rules:
 - Every claim must be backed by evidence from the provided chunks
 - Do NOT hallucinate or invent information not in the evidence
 - Be thorough but concise in your reasoning"""
+
+DECISION_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", DECISION_SYSTEM_PROMPT.replace("{", "{{").replace("}", "}}")),
+    ("human",
+     "## Retrieved Evidence\n\n{context}\n\n"
+     "## Question\n\n{question}\n\n"
+     "Analyze the evidence and produce your decision as JSON."),
+])
 
 
 class DecisionAgent:
@@ -136,16 +145,13 @@ class DecisionAgent:
             )
         )
 
+        # Use LangChain ChatPromptTemplate to format the prompt
+        prompt_value = DECISION_PROMPT.format_prompt(
+            context=context, question=question
+        )
         messages = [
-            {"role": "system", "content": DECISION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"## Retrieved Evidence\n\n{context}\n\n"
-                    f"## Question\n\n{question}\n\n"
-                    "Analyze the evidence and produce your decision as JSON."
-                ),
-            },
+            {"role": "user" if m.type == "human" else m.type, "content": m.content}
+            for m in prompt_value.messages
         ]
 
         result = await self.router.complete(
