@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
     top_k_retrieval: int = 10
-    top_k_final: int = 5
+    top_k_final: int = 7
 
     # Agent configuration
     confidence_threshold: float = 0.60
