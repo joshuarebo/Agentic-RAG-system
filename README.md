@@ -1,19 +1,19 @@
 # Policy-Aware AI Decision Agent
 
-A mini AI-Pass agent system demonstrating Retrieval-Augmented Generation (RAG), AI agent orchestration, deterministic validation, and explainable results.
+A mini AI-Pass agent system demonstrating Retrieval-Augmented Generation (RAG), AI agent orchestration, deterministic validation, and explainable results. Built with **LangChain**, **ChromaDB**, and **FastAPI**.
 
 ## Architecture
 
 ```
 User Question
      |
-[Query Expansion] -- LLM call 1 (secondary model, fast)
+[Query Expansion] -- LangChain ChatOpenAI (secondary model, fast)
      |
 [Vector Retrieval] -- ChromaDB similarity search (dual query)
      |
 [Evidence Assembly] -- top-K chunks with citations
      |
-[Decision Agent] -- LLM call 2 (primary model)
+[Decision Agent] -- LangChain ChatPromptTemplate + ChatOpenAI (primary model)
      |
 Structured Decision (PASS / FAIL / NEEDS_INFO)
   + reasons, evidence, confidence, reasoning steps
@@ -24,16 +24,27 @@ Structured Decision (PASS / FAIL / NEEDS_INFO)
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | API | FastAPI | REST endpoints for documents and queries |
+| LLM Framework | LangChain | ChatOpenAI routing, ChatPromptTemplate, text splitting |
 | Vector DB | ChromaDB | Open-source embedded vector storage |
 | Embeddings | all-MiniLM-L6-v2 | Local embeddings via ChromaDB (no API cost) |
-| LLM Routing | OpenRouter | Multi-model access (Claude, Gemini, etc.) |
+| LLM Routing | OpenRouter + LangChain | Multi-model access (Claude, Gemini, Llama, etc.) |
+| Text Splitting | LangChain RecursiveCharacterTextSplitter | Semantic chunking with paragraph-aware separators |
+| Dashboard | Built-in HTML | Live system metrics and model usage stats |
 | Frontend | Streamlit | Simple demo UI |
+
+### LangChain Integration
+
+LangChain is used across three core layers:
+
+- **Text Splitting** (`app/ingestion.py`) -- `RecursiveCharacterTextSplitter` with separators `["\n\n", "\n", ". ", " ", ""]` for paragraph-aware chunking
+- **LLM Routing** (`app/router.py`) -- `ChatOpenAI` from `langchain-openai` handles all model calls via OpenRouter's OpenAI-compatible API, with automatic message conversion (`SystemMessage`, `HumanMessage`)
+- **Prompt Templates** (`app/agent.py`) -- `ChatPromptTemplate.from_messages()` defines the decision agent's system + user prompt with `{context}` and `{question}` variables
 
 ### RAG Pipeline
 
-1. **Document Ingestion** -- PDF/TXT/MD parsed and split into semantic chunks respecting paragraph boundaries
+1. **Document Ingestion** -- PDF/TXT/MD parsed and split into semantic chunks via LangChain's RecursiveCharacterTextSplitter
 2. **Embedding** -- Chunks embedded via all-MiniLM-L6-v2 (local, runs on CPU)
-3. **Query Expansion** -- User query expanded by a fast LLM for better retrieval coverage
+3. **Query Expansion** -- User query expanded by a fast LLM (LangChain ChatOpenAI) for better retrieval coverage
 4. **Dual Retrieval** -- Both expanded and original queries searched against ChromaDB
 5. **Evidence Assembly** -- Top chunks ranked by cosine similarity with full source citations
 
@@ -55,7 +66,7 @@ The agent follows a **Reason -> Evaluate -> Execute -> Explain** flow:
 
 ### Model Routing
 
-Requests are routed to different models based on task complexity:
+Requests are routed to different models based on task complexity via LangChain's `ChatOpenAI`:
 
 - **Primary model** (Gemini 2.0 Flash via OpenRouter): Decision generation, complex analysis
 - **Secondary model** (Llama 3.3 70B via OpenRouter): Query expansion, simple tasks
@@ -75,6 +86,18 @@ All calls log: model used, input/output tokens, latency, cached tokens.
 }
 ```
 
+## Dashboard
+
+A built-in system dashboard is available at `/dashboard` showing live metrics:
+
+- **Document & chunk counts** -- how much data is indexed
+- **Query count** -- total questions processed
+- **API call stats** -- total calls, tokens consumed, average latency
+- **Model breakdown** -- per-model call count and token usage
+- **Recent activity** -- last 10 API calls with timestamps
+
+The dashboard auto-refreshes every 30 seconds. Data is served from `/api/dashboard/data`.
+
 ## Setup
 
 ### Prerequisites
@@ -86,7 +109,7 @@ All calls log: model used, input/output tokens, latency, cached tokens.
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/Agentic-RAG-system.git
+git clone https://github.com/joshuarebo/Agentic-RAG-system.git
 cd Agentic-RAG-system
 
 # Install dependencies
@@ -105,6 +128,7 @@ streamlit run frontend/app.py
 ```
 
 API docs available at: `http://localhost:8000/docs`
+Dashboard available at: `http://localhost:8000/dashboard`
 
 ### Docker
 
@@ -154,6 +178,8 @@ python test_e2e.py
 | POST | `/api/query` | Submit a question for analysis |
 | GET | `/api/health` | Health check |
 | GET | `/api/logs` | Model usage logs |
+| GET | `/api/dashboard/data` | Aggregated dashboard metrics |
+| GET | `/dashboard` | System dashboard UI |
 
 ## Example Usage
 
