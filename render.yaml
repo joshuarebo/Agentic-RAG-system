@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: policy-decision-agent
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: PORT
+        value: "8000"

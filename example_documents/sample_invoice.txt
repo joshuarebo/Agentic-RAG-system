@@ -1,0 +1,27 @@
+INVOICE
+
+Vendor: TechSupply Corp
+Address: 456 Innovation Drive, San Jose, CA 95134
+Tax ID: XX-XXXXXXX
+
+Bill To: Acme Corporation
+
+Invoice Number: INV-2024-0892
+Invoice Date: January 15, 2024
+Due Date: February 14, 2024
+Purchase Order: PO-2024-0456
+
+Description                        Qty    Unit Price    Total
+-----------------------------------------------------------
+Cloud Server License (Annual)       5     $2,400.00    $12,000.00
+Premium Support Package             5     $600.00      $3,000.00
+Data Migration Service              1     $4,500.00    $4,500.00
+-----------------------------------------------------------
+                                   Subtotal:           $19,500.00
+                                   Tax (8.5%):         $1,657.50
+                                   TOTAL DUE:          $21,157.50
+
+Payment Terms: Net 30
+Wire Transfer Details: Bank of Innovation, Account #XXXXXXXX
+
+Notes: This invoice is related to the Q1 2024 infrastructure upgrade project.

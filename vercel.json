@@ -1,0 +1,17 @@
+{
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.py"
+    }
+  ],
+  "env": {
+    "CHROMA_PERSIST_DIR": "/tmp/chroma_data"
+  }
+}
